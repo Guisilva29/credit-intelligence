@@ -8,7 +8,6 @@
 
 
 -- 1. VISÃO GERAL DA INADIMPLÊNCIA
--- Pergunta: qual é a taxa geral de inadimplência?
 
 SELECT
     COUNT(*) AS total_clientes,
@@ -21,27 +20,47 @@ SELECT
 FROM public.clientes_credito;
 
 
--- 2. INADIMPLÊNCIA POR SITUAÇÃO DE PAGAMENTO
--- Pergunta: como o atraso mais recente se relaciona
--- com a inadimplência no mês seguinte?
--- PAY_0 representa o histórico de pagamento mais recente
--- disponível nesta base de dados.
+-- 2. INADIMPLÊNCIA POR HISTÓRICO DE PAGAMENTO
 
+WITH resumo AS (
+    SELECT
+        pay_0,
+        COUNT(*) AS quantidade_clientes,
+        SUM(default_payment_next_month) AS inadimplentes,
+        AVG(default_payment_next_month::numeric) * 100
+            AS taxa_inadimplencia_pct
+    FROM public.clientes_credito
+    GROUP BY pay_0
+),
+total AS (
+    SELECT
+        COUNT(*) AS total_clientes,
+        SUM(default_payment_next_month) AS total_inadimplentes,
+        AVG(default_payment_next_month::numeric) * 100
+            AS taxa_geral_pct
+    FROM public.clientes_credito
+)
 SELECT
-    pay_0,
-    COUNT(*) AS quantidade_clientes,
-    SUM(default_payment_next_month) AS inadimplentes,
+    r.pay_0,
+    r.quantidade_clientes,
+    r.inadimplentes,
+    ROUND(r.taxa_inadimplencia_pct, 2)
+        AS taxa_inadimplencia_pct,
     ROUND(
-        AVG(default_payment_next_month::numeric) * 100,
+        r.taxa_inadimplencia_pct - t.taxa_geral_pct,
         2
-    ) AS taxa_inadimplencia_pct
-FROM public.clientes_credito
-GROUP BY pay_0
-ORDER BY pay_0;
+    ) AS diferenca_pontos_percentuais,
+    ROUND(
+        100.0 * r.inadimplentes
+        / NULLIF(t.total_inadimplentes, 0),
+        2
+    ) AS participacao_inadimplentes_pct
+FROM resumo r
+CROSS JOIN total t
+ORDER BY r.pay_0;
 
 
 -- 3. INADIMPLÊNCIA POR FAIXA DE LIMITE DE CRÉDITO
--- Pergunta: como a taxa varia entre as faixas de limite?
 
 WITH clientes_faixas AS (
     SELECT
@@ -62,22 +81,46 @@ WITH clientes_faixas AS (
             ELSE 5
         END AS ordem_faixa
     FROM public.clientes_credito
+),
+resumo AS (
+    SELECT
+        faixa_limite,
+        ordem_faixa,
+        COUNT(*) AS quantidade_clientes,
+        SUM(default_payment_next_month) AS inadimplentes,
+        AVG(default_payment_next_month::numeric) * 100
+            AS taxa_inadimplencia_pct
+    FROM clientes_faixas
+    GROUP BY faixa_limite, ordem_faixa
+),
+total AS (
+    SELECT
+        SUM(default_payment_next_month) AS total_inadimplentes,
+        AVG(default_payment_next_month::numeric) * 100
+            AS taxa_geral_pct
+    FROM public.clientes_credito
 )
 SELECT
-    faixa_limite,
-    COUNT(*) AS quantidade_clientes,
-    SUM(default_payment_next_month) AS inadimplentes,
+    r.faixa_limite,
+    r.quantidade_clientes,
+    r.inadimplentes,
+    ROUND(r.taxa_inadimplencia_pct, 2)
+        AS taxa_inadimplencia_pct,
     ROUND(
-        AVG(default_payment_next_month::numeric) * 100,
+        r.taxa_inadimplencia_pct - t.taxa_geral_pct,
         2
-    ) AS taxa_inadimplencia_pct
-FROM clientes_faixas
-GROUP BY faixa_limite, ordem_faixa
-ORDER BY ordem_faixa;
+    ) AS diferenca_pontos_percentuais,
+    ROUND(
+        100.0 * r.inadimplentes
+        / NULLIF(t.total_inadimplentes, 0),
+        2
+    ) AS participacao_inadimplentes_pct
+FROM resumo r
+CROSS JOIN total t
+ORDER BY r.ordem_faixa;
 
 
 -- 4. INADIMPLÊNCIA POR FAIXA ETÁRIA
--- Pergunta: existem diferenças entre os grupos de idade?
 
 WITH clientes_faixas AS (
     SELECT
@@ -98,23 +141,46 @@ WITH clientes_faixas AS (
             ELSE 5
         END AS ordem_faixa
     FROM public.clientes_credito
+),
+resumo AS (
+    SELECT
+        faixa_etaria,
+        ordem_faixa,
+        COUNT(*) AS quantidade_clientes,
+        SUM(default_payment_next_month) AS inadimplentes,
+        AVG(default_payment_next_month::numeric) * 100
+            AS taxa_inadimplencia_pct
+    FROM clientes_faixas
+    GROUP BY faixa_etaria, ordem_faixa
+),
+total AS (
+    SELECT
+        SUM(default_payment_next_month) AS total_inadimplentes,
+        AVG(default_payment_next_month::numeric) * 100
+            AS taxa_geral_pct
+    FROM public.clientes_credito
 )
 SELECT
-    faixa_etaria,
-    COUNT(*) AS quantidade_clientes,
-    SUM(default_payment_next_month) AS inadimplentes,
+    r.faixa_etaria,
+    r.quantidade_clientes,
+    r.inadimplentes,
+    ROUND(r.taxa_inadimplencia_pct, 2)
+        AS taxa_inadimplencia_pct,
     ROUND(
-        AVG(default_payment_next_month::numeric) * 100,
+        r.taxa_inadimplencia_pct - t.taxa_geral_pct,
         2
-    ) AS taxa_inadimplencia_pct
-FROM clientes_faixas
-GROUP BY faixa_etaria, ordem_faixa
-ORDER BY ordem_faixa;
+    ) AS diferenca_pontos_percentuais,
+    ROUND(
+        100.0 * r.inadimplentes
+        / NULLIF(t.total_inadimplentes, 0),
+        2
+    ) AS participacao_inadimplentes_pct
+FROM resumo r
+CROSS JOIN total t
+ORDER BY r.ordem_faixa;
 
 
 -- 5. ANÁLISE COMBINADA: IDADE E LIMITE DE CRÉDITO
--- Pergunta: a relação entre faixa de limite e inadimplência
--- varia conforme a faixa etária?
 
 WITH clientes_faixas AS (
     SELECT
@@ -150,22 +216,49 @@ WITH clientes_faixas AS (
             ELSE 5
         END AS ordem_limite
     FROM public.clientes_credito
+),
+resumo AS (
+    SELECT
+        faixa_etaria,
+        faixa_limite,
+        ordem_etaria,
+        ordem_limite,
+        COUNT(*) AS quantidade_clientes,
+        SUM(default_payment_next_month) AS inadimplentes,
+        AVG(default_payment_next_month::numeric) * 100
+            AS taxa_inadimplencia_pct
+    FROM clientes_faixas
+    GROUP BY
+        faixa_etaria,
+        faixa_limite,
+        ordem_etaria,
+        ordem_limite
+),
+total AS (
+    SELECT
+        SUM(default_payment_next_month) AS total_inadimplentes,
+        AVG(default_payment_next_month::numeric) * 100
+            AS taxa_geral_pct
+    FROM public.clientes_credito
 )
 SELECT
-    faixa_etaria,
-    faixa_limite,
-    COUNT(*) AS quantidade_clientes,
-    SUM(default_payment_next_month) AS inadimplentes,
+    r.faixa_etaria,
+    r.faixa_limite,
+    r.quantidade_clientes,
+    r.inadimplentes,
+    ROUND(r.taxa_inadimplencia_pct, 2)
+        AS taxa_inadimplencia_pct,
     ROUND(
-        AVG(default_payment_next_month::numeric) * 100,
+        r.taxa_inadimplencia_pct - t.taxa_geral_pct,
         2
-    ) AS taxa_inadimplencia_pct
-FROM clientes_faixas
-GROUP BY
-    faixa_etaria,
-    faixa_limite,
-    ordem_etaria,
-    ordem_limite
+    ) AS diferenca_pontos_percentuais,
+    ROUND(
+        100.0 * r.inadimplentes
+        / NULLIF(t.total_inadimplentes, 0),
+        2
+    ) AS participacao_inadimplentes_pct
+FROM resumo r
+CROSS JOIN total t
 ORDER BY
-    ordem_etaria,
-    ordem_limite;
+    r.ordem_etaria,
+    r.ordem_limite;
